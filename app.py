@@ -1498,85 +1498,146 @@ class OfficeSuppliesChatbot:
             return
 
 
+
 # ============================================================
-# 11. RUN CHATBOT
+# 11. STREAMLIT INTERFACE
 # ============================================================
 
-def run_chatbot():
+import streamlit as st
+from contextlib import redirect_stdout
+from io import StringIO
 
-    chatbot = OfficeSuppliesChatbot()
+st.set_page_config(
+    page_title="Office Supplies Procurement Chatbot",
+    page_icon="🛒",
+    layout="centered"
+)
 
-    print("=" * 80)
-    print("             OFFICE SUPPLIES PROCUREMENT CHATBOT")
-    print("=" * 80)
+st.title("🛒 Office Supplies Procurement Chatbot")
+st.caption("Python-based business chatbot for office-supplies procurement")
 
-    print(
-        "\nBot: Hello! Welcome to the "
-        "Office Supplies Procurement Chatbot."
+# Keep the student's chatbot object alive across Streamlit reruns.
+if "chatbot" not in st.session_state:
+    st.session_state.chatbot = OfficeSuppliesChatbot()
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "started" not in st.session_state:
+    st.session_state.started = False
+
+# Sidebar: product catalogue
+with st.sidebar:
+    st.header("Available Office Supplies")
+    for product, details in PRODUCTS.items():
+        st.write(
+            f"**{product.title()}** — ₹{details['price']} / {details['unit']}"
+        )
+
+    if st.button("🔄 Start New Order", use_container_width=True):
+        st.session_state.chatbot = OfficeSuppliesChatbot()
+        st.session_state.messages = []
+        st.session_state.started = False
+        st.rerun()
+
+# Welcome message
+if not st.session_state.started:
+    welcome = (
+        "Hello! Welcome to the Office Supplies Procurement Chatbot.\n\n"
+        "I can help you order multiple products, manage quantities, "
+        "check your budget and arrange delivery.\n\n"
+        "**What product or products would you like to order?**"
+    )
+    st.session_state.messages.append(
+        {"role": "assistant", "content": welcome}
+    )
+    st.session_state.started = True
+
+# Display previous conversation
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Chat input
+user_input = st.chat_input(
+    "Type your request... e.g., 10 pens and 5 notebooks"
+)
+
+if user_input:
+    # Display and store user message
+    st.session_state.messages.append(
+        {"role": "user", "content": user_input}
     )
 
-    print(
-        "Bot: I can help you order multiple products, "
-        "manage quantities, check your budget and "
-        "arrange delivery."
-    )
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-    chatbot.show_products()
+    # Special handling for bye, preserving student's final-summary behaviour
+    if user_input.lower().strip() in ["bye", "goodbye", "exit", "quit"]:
+        output = StringIO()
 
-    print(
-        "\nBot: What product or products would "
-        "you like to order?"
-    )
+        with redirect_stdout(output):
+            print("Thank you for using the Office Supplies Procurement Chatbot!")
 
-    # --------------------------------------------------------
-    # Continuous conversation until BYE
-    # --------------------------------------------------------
-
-    while True:
-
-        user_input = input("\nYou: ").strip()
-
-        # ----------------------------------------------------
-        # BYE
-        # ----------------------------------------------------
-
-        if user_input.lower() in [
-            "bye",
-            "goodbye",
-            "exit",
-            "quit"
-        ]:
-
-            print(
-                "\nBot: Thank you for using the "
-                "Office Supplies Procurement Chatbot!"
-            )
-
-            if chatbot.order_items:
-
-                chatbot.show_summary()
-
+            if st.session_state.chatbot.order_items:
+                st.session_state.chatbot.show_summary()
             else:
+                print("No order was created.")
 
-                print(
-                    "\nBot: No order was created."
-                )
+            print("Goodbye! Have a great day.")
 
-            print(
-                "\nBot: Goodbye! Have a great day."
+        bot_response = output.getvalue()
+
+    else:
+        # The student's original respond() uses print().
+        # Capture those prints and display them in Streamlit.
+        output = StringIO()
+
+        with redirect_stdout(output):
+            st.session_state.chatbot.respond(user_input)
+
+        bot_response = output.getvalue()
+
+        if not bot_response.strip():
+            bot_response = "I could not generate a response. Please try again."
+
+    st.session_state.messages.append(
+        {"role": "assistant", "content": bot_response}
+    )
+
+    with st.chat_message("assistant"):
+        st.markdown(bot_response)
+
+# Current order status
+chatbot = st.session_state.chatbot
+
+if chatbot.order_items:
+    with st.expander("📋 Current Order Details", expanded=False):
+        rows = []
+
+        for product, quantity in chatbot.order_items.items():
+            details = PRODUCTS[product]
+            rows.append({
+                "Product": product.title(),
+                "Category": details["category"],
+                "Quantity": quantity,
+                "Unit Price": f"₹{details['price']:,.2f}",
+                "Item Total": f"₹{quantity * details['price']:,.2f}"
+            })
+
+        st.table(rows)
+
+        total = chatbot.calculate_total()
+        st.metric("Current Order Total", f"₹{total:,.2f}")
+
+        if chatbot.budget is not None:
+            status = (
+                "Within Budget"
+                if total <= chatbot.budget
+                else "Over Budget"
             )
+            st.write(f"**Budget:** ₹{chatbot.budget:,.2f}")
+            st.write(f"**Budget Status:** {status}")
 
-            break
-
-        # ----------------------------------------------------
-        # NORMAL RESPONSE
-        # ----------------------------------------------------
-
-        chatbot.respond(user_input)
-
-
-# ============================================================
-# 12. START CHATBOT
-# ============================================================
-
-run_chatbot()
+        if chatbot.delivery:
+            st.write(f"**Delivery:** {chatbot.delivery}")
